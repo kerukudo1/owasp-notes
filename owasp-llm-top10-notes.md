@@ -499,6 +499,29 @@ AI は古いブログ記事や過去の慣習に基づく依存関係を提案�
 
 ### 自分のアプリへの応用メモ
 
+**今日の診断結果（OSV Scannerで実施）**
+
+Supomatchには2つの独立した依存関係の世界があった。両方スキャンする必要がある。
+- Flutterアプリ側（pubspec.lock、150パッケージ）→ 既知の脆弱性ゼロ。
+- Cloud Functions側（functions/package-lock.json、Node.js）→ 当初25件の既知脆弱性（Critical 1, High 14, Medium 9, Low 1）。
+
+**重要な気づき：アプリ本体だけ見ると見落とす**
+最初 pubspec.lock だけスキャンして「クリーン」と思ったが、`osv-scanner -r .` でフォルダ丸ごとスキャンしたら、裏のCloud Functions（Node.js）に25件の脆弱性が隠れていた。「アプリは1つでも依存の世界は複数ある」。フロント（Dart）とバックエンド（Node.js）は別管理で、両方スキャンしないと片方を見逃す。
+
+**対処と結果**
+- 直接依存は firebase-admin と firebase-functions の2つだけ。検出された脆弱性は全て間接依存（protobufjs, node-forge, fast-xml-parser, uuid等）だった。
+- `npm update` で直接依存を更新したところ、芋づるで間接依存も更新され、25件→2件に激減（23件解消）。
+- 残り2件（uuid GHSA-w5hq-g745-h8pq, CVSS 7.5）はOSVの詳細を確認。v3/v5/v6を外部バッファ指定で不正サイズで呼ぶ特殊条件でのみ発火し、主影響はデータ整合性。Firebase SDKの通常利用では発火経路がなく、影響限定的と判断。
+
+**学び**
+- CVSSスコア（7.5や9.8）だけで判断せず、脆弱性の詳細（発火条件）を読んで「自分のアプリで本当に悪用可能か」を見極める。「9.8だから即死」でも「7.5残ってるからダメ」でもなく、中身次第。
+- 脆弱性のほとんどは間接依存に潜む。直接依存を最新にすると芋づるで多くが解消される。
+- A06は「一度やって終わり」ではなく継続監視が本質。新しい脆弱性は後から登録される。GitHub公開時はDependabot有効化、もしくはOSV Scannerの定期実行を運用に組み込む。
+- Dart/Flutterには npm audit 相当の標準コマンドが無いため、OSV Scanner等の外部ツールが必要。
+
+**未対応（記録）**
+- ローカルでは25→2件まで改善したが、本番への反映（firebase deploy）は未実施。本番のCloud Functionsは現時点で古い依存のままであり、デプロイによって解消される。
+
 ---
 
 ## A07: Identification and Authentication Failures（識別と認証の失敗）
